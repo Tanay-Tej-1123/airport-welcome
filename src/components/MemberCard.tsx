@@ -20,7 +20,7 @@ const MemberCard = ({ member, onClick }: { member: Member; onClick?: () => void 
     >
       <div className="flex items-center gap-4">
         <img
-          src={member.photoUrl}
+          src={member.photo_url || "/placeholder.svg"}
           alt={member.name}
           className="w-14 h-14 rounded-full object-cover border-2 border-border group-hover:border-primary/50 transition-colors"
         />

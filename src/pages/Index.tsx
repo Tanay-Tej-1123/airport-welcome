@@ -1,8 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Camera, Scan, CheckCircle2, XCircle, User } from "lucide-react";
-import { mockMembers, Member } from "@/lib/data";
+import { Member } from "@/lib/data";
 import { TierBadge } from "@/components/MemberCard";
 import Layout from "@/components/Layout";
+import { supabase } from "@/integrations/supabase/client";
 
 type ScanState = "idle" | "scanning" | "recognized" | "denied";
 
@@ -12,6 +13,16 @@ const RecognitionPage = () => {
   const [scanState, setScanState] = useState<ScanState>("idle");
   const [matchedMember, setMatchedMember] = useState<Member | null>(null);
   const [confidence, setConfidence] = useState(0);
+  const [members, setMembers] = useState<Member[]>([]);
+
+  // Fetch registered members from database
+  useEffect(() => {
+    const fetchMembers = async () => {
+      const { data } = await supabase.from("members").select("*");
+      if (data) setMembers(data);
+    };
+    fetchMembers();
+  }, []);
 
   const startCamera = useCallback(async () => {
     try {
@@ -34,23 +45,33 @@ const RecognitionPage = () => {
   }, []);
 
   const simulateScan = useCallback(() => {
+    if (members.length === 0) {
+      setScanState("denied");
+      setConfidence(0);
+      return;
+    }
+
     setScanState("scanning");
     setMatchedMember(null);
 
-    setTimeout(() => {
-      const isMatch = Math.random() > 0.25;
-      if (isMatch) {
-        const member = mockMembers[Math.floor(Math.random() * (mockMembers.length - 1))];
+    setTimeout(async () => {
+      // Pick a random registered member (simulating face match)
+      const isMatch = Math.random() > 0.2;
+      if (isMatch && members.length > 0) {
+        const member = members[Math.floor(Math.random() * members.length)];
         const conf = 92 + Math.random() * 7;
         setConfidence(Math.round(conf * 10) / 10);
         setMatchedMember(member);
         setScanState("recognized");
+
+        // Update last_access in DB
+        await supabase.from("members").update({ last_access: new Date().toISOString() }).eq("id", member.id);
       } else {
         setConfidence(Math.round((20 + Math.random() * 20) * 10) / 10);
         setScanState("denied");
       }
     }, 2500);
-  }, []);
+  }, [members]);
 
   useEffect(() => {
     return () => { stopCamera(); };
@@ -61,7 +82,7 @@ const RecognitionPage = () => {
       <div className="p-8">
         <div className="mb-8">
           <h1 className="font-display text-3xl font-bold text-foreground">Face Recognition Entry</h1>
-          <p className="text-muted-foreground mt-1">Real-time premium member verification</p>
+          <p className="text-muted-foreground mt-1">Real-time premium member verification · {members.length} members registered</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -80,7 +101,6 @@ const RecognitionPage = () => {
                   </div>
                 )}
 
-                {/* Scan overlay */}
                 {scanState === "scanning" && cameraActive && (
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-48 h-48 border-2 border-primary rounded-2xl relative overflow-hidden pulse-gold">
@@ -92,7 +112,6 @@ const RecognitionPage = () => {
                   </div>
                 )}
 
-                {/* Recognized overlay */}
                 {scanState === "recognized" && cameraActive && (
                   <div className="absolute inset-0 flex items-center justify-center bg-background/40">
                     <div className="w-48 h-48 border-2 border-success rounded-2xl flex items-center justify-center fade-in">
@@ -146,7 +165,9 @@ const RecognitionPage = () => {
               {scanState === "idle" && (
                 <div className="text-center py-8">
                   <User className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-                  <p className="text-sm text-muted-foreground">Awaiting scan</p>
+                  <p className="text-sm text-muted-foreground">
+                    {members.length === 0 ? "No members registered yet. Add members first." : "Awaiting scan"}
+                  </p>
                 </div>
               )}
 
@@ -161,7 +182,7 @@ const RecognitionPage = () => {
                 <div className="fade-in space-y-4">
                   <div className="flex items-center gap-3">
                     <div className="relative">
-                      <img src={matchedMember.photoUrl} alt={matchedMember.name} className="w-16 h-16 rounded-full object-cover border-2 border-success" />
+                      <img src={matchedMember.photo_url || "/placeholder.svg"} alt={matchedMember.name} className="w-16 h-16 rounded-full object-cover border-2 border-success" />
                       <CheckCircle2 className="w-5 h-5 text-success absolute -bottom-1 -right-1 bg-card rounded-full" />
                     </div>
                     <div>
@@ -177,7 +198,7 @@ const RecognitionPage = () => {
                     </div>
                     <div className="flex justify-between py-2 border-b border-border">
                       <span className="text-muted-foreground">Passport</span>
-                      <span className="text-foreground font-mono text-xs">{matchedMember.passportNumber}</span>
+                      <span className="text-foreground font-mono text-xs">{matchedMember.passport_number}</span>
                     </div>
                     <div className="flex justify-between py-2 border-b border-border">
                       <span className="text-muted-foreground">Nationality</span>
@@ -213,13 +234,10 @@ const RecognitionPage = () => {
               )}
             </div>
 
-            {/* Stats */}
             <div className="grid grid-cols-2 gap-3">
               {[
-                { label: "Today's Entries", value: "47", color: "text-primary" },
-                { label: "Denied", value: "3", color: "text-destructive" },
-                { label: "Avg Confidence", value: "96.2%", color: "text-success" },
-                { label: "Avg Time", value: "1.8s", color: "text-foreground" },
+                { label: "Registered", value: String(members.length), color: "text-primary" },
+                { label: "Max Capacity", value: "20", color: "text-foreground" },
               ].map((stat) => (
                 <div key={stat.label} className="bg-card border border-border rounded-xl p-3 text-center">
                   <p className={`text-xl font-semibold ${stat.color}`}>{stat.value}</p>

@@ -1,16 +1,24 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, Plus, Filter } from "lucide-react";
-import { mockMembers, Member } from "@/lib/data";
+import { Member, MAX_MEMBERS } from "@/lib/data";
 import { MemberCard, TierBadge } from "@/components/MemberCard";
 import Layout from "@/components/Layout";
 import AddMemberModal from "@/components/AddMemberModal";
+import { supabase } from "@/integrations/supabase/client";
 
 const MembersPage = () => {
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
-  const [members, setMembers] = useState<Member[]>(mockMembers);
+  const [members, setMembers] = useState<Member[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
+
+  const fetchMembers = async () => {
+    const { data } = await supabase.from("members").select("*").order("created_at", { ascending: false });
+    if (data) setMembers(data);
+  };
+
+  useEffect(() => { fetchMembers(); }, []);
 
   const filtered = members.filter((m) => {
     const matchesSearch = m.name.toLowerCase().includes(search.toLowerCase()) || m.email.toLowerCase().includes(search.toLowerCase());
@@ -18,28 +26,23 @@ const MembersPage = () => {
     return matchesSearch && matchesTier;
   });
 
-  const handleAddMember = (member: Member) => {
-    setMembers((prev) => [member, ...prev]);
-    setSelectedMember(member);
-  };
-
   return (
     <Layout>
       <div className="p-8">
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="font-display text-3xl font-bold text-foreground">Member Database</h1>
-            <p className="text-muted-foreground mt-1">{members.length} registered premium members</p>
+            <p className="text-muted-foreground mt-1">{members.length} / {MAX_MEMBERS} registered premium members</p>
           </div>
           <button
             onClick={() => setShowAddModal(true)}
-            className="gold-gradient text-primary-foreground px-5 py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity flex items-center gap-2"
+            disabled={members.length >= MAX_MEMBERS}
+            className="gold-gradient text-primary-foreground px-5 py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity flex items-center gap-2 disabled:opacity-50"
           >
             <Plus className="w-4 h-4" /> Add Member
           </button>
         </div>
 
-        {/* Search & Filters */}
         <div className="flex items-center gap-3 mb-6">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -72,7 +75,9 @@ const MembersPage = () => {
               <MemberCard key={member.id} member={member} onClick={() => setSelectedMember(member)} />
             ))}
             {filtered.length === 0 && (
-              <div className="text-center py-12 text-muted-foreground">No members found</div>
+              <div className="text-center py-12 text-muted-foreground">
+                {members.length === 0 ? "No members yet. Click 'Add Member' to enroll." : "No members found"}
+              </div>
             )}
           </div>
 
@@ -80,18 +85,18 @@ const MembersPage = () => {
             {selectedMember ? (
               <div className="fade-in space-y-5">
                 <div className="text-center">
-                  <img src={selectedMember.photoUrl} alt={selectedMember.name} className="w-24 h-24 rounded-full object-cover mx-auto border-2 border-primary/30" />
+                  <img src={selectedMember.photo_url || ""} alt={selectedMember.name} className="w-24 h-24 rounded-full object-cover mx-auto border-2 border-primary/30" />
                   <h2 className="font-display text-xl font-semibold text-foreground mt-3">{selectedMember.name}</h2>
                   <div className="mt-2"><TierBadge tier={selectedMember.tier} /></div>
                 </div>
                 <div className="space-y-3 text-sm">
                   {[
                     ["Email", selectedMember.email],
-                    ["Passport", selectedMember.passportNumber],
+                    ["Passport", selectedMember.passport_number],
                     ["Nationality", selectedMember.nationality],
-                    ["Member Since", selectedMember.memberSince],
+                    ["Member Since", selectedMember.member_since],
                     ["Total Flights", String(selectedMember.flights)],
-                    ["Last Access", selectedMember.lastAccess || "—"],
+                    ["Last Access", selectedMember.last_access || "—"],
                     ["Status", selectedMember.status],
                   ].map(([label, value]) => (
                     <div key={label} className="flex justify-between py-2 border-b border-border last:border-0">
@@ -111,7 +116,7 @@ const MembersPage = () => {
         </div>
       </div>
 
-      <AddMemberModal open={showAddModal} onClose={() => setShowAddModal(false)} onAdd={handleAddMember} />
+      <AddMemberModal open={showAddModal} onClose={() => setShowAddModal(false)} onAdd={fetchMembers} memberCount={members.length} />
     </Layout>
   );
 };
