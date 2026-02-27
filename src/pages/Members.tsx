@@ -3,17 +3,25 @@ import { Search, Plus, Filter } from "lucide-react";
 import { mockMembers, Member } from "@/lib/data";
 import { MemberCard, TierBadge } from "@/components/MemberCard";
 import Layout from "@/components/Layout";
+import AddMemberModal from "@/components/AddMemberModal";
 
 const MembersPage = () => {
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [members, setMembers] = useState<Member[]>(mockMembers);
+  const [showAddModal, setShowAddModal] = useState(false);
 
-  const filtered = mockMembers.filter((m) => {
+  const filtered = members.filter((m) => {
     const matchesSearch = m.name.toLowerCase().includes(search.toLowerCase()) || m.email.toLowerCase().includes(search.toLowerCase());
     const matchesTier = tierFilter === "all" || m.tier === tierFilter;
     return matchesSearch && matchesTier;
   });
+
+  const handleAddMember = (member: Member) => {
+    setMembers((prev) => [member, ...prev]);
+    setSelectedMember(member);
+  };
 
   return (
     <Layout>
@@ -21,9 +29,12 @@ const MembersPage = () => {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="font-display text-3xl font-bold text-foreground">Member Database</h1>
-            <p className="text-muted-foreground mt-1">{mockMembers.length} registered premium members</p>
+            <p className="text-muted-foreground mt-1">{members.length} registered premium members</p>
           </div>
-          <button className="gold-gradient text-primary-foreground px-5 py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity flex items-center gap-2">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="gold-gradient text-primary-foreground px-5 py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity flex items-center gap-2"
+          >
             <Plus className="w-4 h-4" /> Add Member
           </button>
         </div>
@@ -56,7 +67,6 @@ const MembersPage = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Member List */}
           <div className="lg:col-span-2 space-y-3">
             {filtered.map((member) => (
               <MemberCard key={member.id} member={member} onClick={() => setSelectedMember(member)} />
@@ -66,7 +76,6 @@ const MembersPage = () => {
             )}
           </div>
 
-          {/* Member Detail */}
           <div className="bg-card border border-border rounded-2xl p-6 h-fit sticky top-8">
             {selectedMember ? (
               <div className="fade-in space-y-5">
@@ -101,6 +110,8 @@ const MembersPage = () => {
           </div>
         </div>
       </div>
+
+      <AddMemberModal open={showAddModal} onClose={() => setShowAddModal(false)} onAdd={handleAddMember} />
     </Layout>
   );
 };
