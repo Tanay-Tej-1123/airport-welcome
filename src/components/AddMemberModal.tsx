@@ -1,21 +1,25 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Camera, Scan, CheckCircle2, X, User } from "lucide-react";
-import { Member } from "@/lib/data";
+import { supabase } from "@/integrations/supabase/client";
+import { MAX_MEMBERS } from "@/lib/data";
+import { toast } from "@/hooks/use-toast";
 
 interface AddMemberModalProps {
   open: boolean;
   onClose: () => void;
-  onAdd: (member: Member) => void;
+  onAdd: () => void;
+  memberCount: number;
 }
 
 type Step = "camera" | "scanning" | "captured" | "form";
 
-const AddMemberModal = ({ open, onClose, onAdd }: AddMemberModalProps) => {
+const AddMemberModal = ({ open, onClose, onAdd, memberCount }: AddMemberModalProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [step, setStep] = useState<Step>("camera");
   const [capturedPhoto, setCapturedPhoto] = useState<string>("");
-  const [form, setForm] = useState({ name: "", email: "", tier: "Silver" as Member["tier"], passportNumber: "", nationality: "" });
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: "", email: "", tier: "Silver" as "Platinum" | "Gold" | "Silver", passportNumber: "", nationality: "" });
 
   const startCamera = useCallback(async () => {
     try {
@@ -48,7 +52,6 @@ const AddMemberModal = ({ open, onClose, onAdd }: AddMemberModalProps) => {
   const handleScan = () => {
     setStep("scanning");
     setTimeout(() => {
-      // Capture frame from video
       if (videoRef.current && canvasRef.current) {
         const canvas = canvasRef.current;
         canvas.width = 480;
@@ -62,27 +65,53 @@ const AddMemberModal = ({ open, onClose, onAdd }: AddMemberModalProps) => {
       }
       stopCamera();
       setStep("captured");
-      // Auto-advance to form after brief delay
       setTimeout(() => setStep("form"), 1200);
     }, 2500);
   };
 
-  const handleSubmit = () => {
-    if (!form.name || !form.email) return;
-    const newMember: Member = {
-      id: Date.now().toString(),
-      name: form.name,
-      email: form.email,
-      tier: form.tier,
-      memberSince: new Date().toISOString().split("T")[0],
-      flights: 0,
-      photoUrl: capturedPhoto,
-      passportNumber: form.passportNumber,
-      nationality: form.nationality,
-      status: "active",
-    };
-    onAdd(newMember);
-    onClose();
+  const handleSubmit = async () => {
+    if (!form.name || !form.email || !form.passportNumber || !form.nationality) return;
+    if (memberCount >= MAX_MEMBERS) {
+      toast({ title: "Limit reached", description: `Maximum ${MAX_MEMBERS} members allowed.`, variant: "destructive" });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Upload photo to storage
+      let photoUrl: string | null = null;
+      if (capturedPhoto) {
+        const blob = await (await fetch(capturedPhoto)).blob();
+        const fileName = `${Date.now()}-${form.name.replace(/\s+/g, "-").toLowerCase()}.jpg`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from("member-photos")
+          .upload(fileName, blob, { contentType: "image/jpeg" });
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage.from("member-photos").getPublicUrl(uploadData.path);
+        photoUrl = urlData.publicUrl;
+      }
+
+      const { error } = await supabase.from("members").insert({
+        name: form.name,
+        email: form.email,
+        tier: form.tier,
+        passport_number: form.passportNumber,
+        nationality: form.nationality,
+        photo_url: photoUrl,
+      });
+
+      if (error) throw error;
+
+      toast({ title: "Member registered", description: `${form.name} has been enrolled successfully.` });
+      onAdd();
+      onClose();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!open) return null;
@@ -90,7 +119,6 @@ const AddMemberModal = ({ open, onClose, onAdd }: AddMemberModalProps) => {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/70 backdrop-blur-sm fade-in">
       <div className="bg-card border border-border rounded-2xl w-full max-w-lg mx-4 overflow-hidden shadow-2xl">
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="font-display text-lg font-semibold text-foreground">
             {step === "form" ? "Member Details" : "Face Enrollment"}
@@ -100,14 +128,11 @@ const AddMemberModal = ({ open, onClose, onAdd }: AddMemberModalProps) => {
           </button>
         </div>
 
-        {/* Camera / Scan / Form */}
         <div className="p-6">
           {(step === "camera" || step === "scanning") && (
             <div className="space-y-4">
               <div className="relative aspect-square max-w-xs mx-auto rounded-2xl overflow-hidden bg-muted">
                 <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                
-                {/* Face guide overlay */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className={`w-48 h-48 rounded-full border-2 ${step === "scanning" ? "border-primary pulse-gold" : "border-muted-foreground/40"} transition-colors`}>
                     {step === "scanning" && (
@@ -115,20 +140,16 @@ const AddMemberModal = ({ open, onClose, onAdd }: AddMemberModalProps) => {
                     )}
                   </div>
                 </div>
-
                 {step === "scanning" && (
                   <div className="absolute bottom-4 left-1/2 -translate-x-1/2 glass-panel rounded-full px-4 py-2">
                     <p className="text-xs text-primary font-medium animate-pulse">Scanning face...</p>
                   </div>
                 )}
               </div>
-
               <canvas ref={canvasRef} className="hidden" />
-
               <p className="text-center text-sm text-muted-foreground">
                 {step === "scanning" ? "Analyzing facial features..." : "Position your face within the circle"}
               </p>
-
               <button
                 onClick={handleScan}
                 disabled={step === "scanning"}
@@ -153,7 +174,6 @@ const AddMemberModal = ({ open, onClose, onAdd }: AddMemberModalProps) => {
 
           {step === "form" && (
             <div className="space-y-4 fade-in">
-              {/* Photo preview */}
               <div className="flex items-center gap-4 pb-4 border-b border-border">
                 {capturedPhoto ? (
                   <img src={capturedPhoto} alt="Member" className="w-16 h-16 rounded-full object-cover border-2 border-success" />
@@ -170,7 +190,6 @@ const AddMemberModal = ({ open, onClose, onAdd }: AddMemberModalProps) => {
                 </div>
               </div>
 
-              {/* Form fields */}
               {[
                 { label: "Full Name", key: "name", placeholder: "e.g. Alexandra Chen", type: "text" },
                 { label: "Email", key: "email", placeholder: "e.g. a.chen@email.com", type: "email" },
@@ -210,10 +229,10 @@ const AddMemberModal = ({ open, onClose, onAdd }: AddMemberModalProps) => {
 
               <button
                 onClick={handleSubmit}
-                disabled={!form.name || !form.email}
+                disabled={!form.name || !form.email || !form.passportNumber || !form.nationality || saving}
                 className="w-full gold-gradient text-primary-foreground py-3 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 mt-2"
               >
-                Register Member
+                {saving ? "Registering..." : "Register Member"}
               </button>
             </div>
           )}
